@@ -70,6 +70,7 @@ class LapseEngine:
             if frame_queue.empty():
                 continue
             image: np.ndarray = frame_queue.get_nowait()
+            height, width, channel = image.shape
 
             corners, ids, _ = self.qr_detector.detectMarkers(image)
             all_moving_objects: list[MovingObject] = []
@@ -86,7 +87,7 @@ class LapseEngine:
 
             self.tracking_engine.update(all_moving_objects)
 
-            object_past = self.count_lapse()
+            object_past = self.count_lapse(height=height)
             if object_past:
                 self.pump_data_into_websocket(connection_manager=connection_manager)
 
@@ -96,6 +97,8 @@ class LapseEngine:
             visual_queue.put_nowait(data_bytes)
 
     def visualisation(self, frame):
+        height, width, channel = frame.shape
+
         for moving_object in self.tracking_engine.tracking_objects.values():
             object_in_pending = moving_object.id in self.pending
 
@@ -116,8 +119,8 @@ class LapseEngine:
         # draw a single line in the middle
         frame = cv2.line(
             frame,
-            (0, 1080 // 2 - 5),
-            (1920, 1080 // 2 - 5),
+            (0, height // 2 - 5),
+            (width, height // 2 - 5),
             (0, 255, 0),
             thickness=1,
             lineType=cv2.LINE_4,
@@ -125,18 +128,18 @@ class LapseEngine:
 
         frame = cv2.line(
             frame,
-            (0, 1080 // 2 + 5),
-            (1920, 1080 // 2 + 5),
+            (0, height // 2 + 5),
+            (width, height // 2 + 5),
             (0, 255, 0),
             thickness=1,
             lineType=cv2.LINE_4,
         )
         return frame
 
-    def count_lapse(self) -> bool:
+    def count_lapse(self, height) -> bool:
         object_past = False
         for moving_object in self.tracking_engine.tracking_objects.values():
-            passed_finish_line = get_middle(moving_object.corner)[1] > (1080 // 2)
+            passed_finish_line = get_middle(moving_object.corner)[1] > (height // 2)
 
             object_in_tracking = moving_object.id in self.tracking
             object_in_pending = moving_object.id in self.pending
