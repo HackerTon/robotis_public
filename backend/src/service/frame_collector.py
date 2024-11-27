@@ -23,6 +23,9 @@ class LastFrameCollector:
         cam = cv2.VideoCapture(self.video_path, cv2.CAP_DSHOW)
         cam.set(cv2.CAP_PROP_AUTO_EXPOSURE, 3)
         cam.set(cv2.CAP_PROP_EXPOSURE, -3.0)
+
+        cam.release()
+        cam = cv2.VideoCapture(self.video_path, cv2.CAP_DSHOW)
         while running_flag.value:
             frame_running, frame = cam.read()
             if not frame_running:
