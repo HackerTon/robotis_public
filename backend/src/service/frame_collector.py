@@ -20,7 +20,9 @@ class LastFrameCollector:
         self.running.value = False
 
     def _start_collection(self, queue: Queue, running_flag):
-        cam = cv2.VideoCapture(self.video_path)
+        cam = cv2.VideoCapture(self.video_path, cv2.CAP_DSHOW)
+        cam.set(cv2.CAP_PROP_AUTO_EXPOSURE, 3)
+        cam.set(cv2.CAP_PROP_EXPOSURE, -3.0)
         while running_flag.value:
             frame_running, frame = cam.read()
             if not frame_running:
