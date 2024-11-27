@@ -10,14 +10,19 @@ import AlertMP3 from '@/assets/alert.mp3'
 const scores = useCollection(query(collection(db, 'scores'), orderBy('score', 'desc')))
 const { lastUpdateText } = useWatchableRef(scores)
 
-
 const alert = new Audio(AlertMP3)
 
-watch(scores, () => {
-  alert.play()
-}, { deep: true })
+watch(
+  scores,
+  () => {
+    alert.play()
+  },
+  { deep: true },
+)
 
-function generateSVGFromText(text) { return `data:image/svg+xml;utf8,${generateFromString(text)}` }
+function generateSVGFromText(text) {
+  return `data:image/svg+xml;utf8,${generateFromString(text)}`
+}
 </script>
 
 <template>
@@ -31,8 +36,11 @@ function generateSVGFromText(text) { return `data:image/svg+xml;utf8,${generateF
         <div class="flex-none flex-col">
           <div class="text pb-2 justify-self-end">Last Update {{ lastUpdateText }}</div>
           <div class="grid grid-rows-1 gap-y-2.5">
-            <div v-for="({ name, score }, index) in scores" :key="name"
-              class="flex flex-row gap-5 bg-yellow-400 rounded-lg text-lg p-2.5 items-center">
+            <div
+              v-for="({ name, score }, index) in scores"
+              :key="name"
+              class="flex flex-row gap-5 bg-yellow-400 rounded-lg text-lg p-2.5 items-center"
+            >
               <div class="flex-initial">Ranking: {{ index + 1 }}</div>
               <img class="flex-initial h-10 w-10 rounded-full" :src="generateSVGFromText(name)" />
               <div class="flex-1">Player Name: {{ name }}</div>
@@ -41,7 +49,6 @@ function generateSVGFromText(text) { return `data:image/svg+xml;utf8,${generateF
           </div>
         </div>
       </div>
-
     </div>
   </div>
 </template>
