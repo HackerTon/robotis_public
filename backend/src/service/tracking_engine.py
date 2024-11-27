@@ -4,8 +4,8 @@ import time
 
 
 class TrackingEngine:
-    MINIMUM_TRACKED = 3
-    MINIMUM_SECOND_BEFORE_TRACK = 0.1
+    MINIMUM_TRACKED = 1
+    MINIMUM_SECOND_BEFORE_TRACK = 0.34
     MAXIMUM_SECOND_BEFORE_EXPIRE = 2
 
     pending_objects: Dict[str, TrackingMovingObject] = {}
@@ -43,7 +43,6 @@ class TrackingEngine:
                 pending_object.detected_times += 1
                 pending_object.corner = corner
                 pending_object.last_update_second = current_second
-
         self.promote_object_to_tracking(current_second)
 
     def remove_timeout_objects(self, current_millis: float):
