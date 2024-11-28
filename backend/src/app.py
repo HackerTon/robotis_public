@@ -5,11 +5,11 @@ from contextlib import asynccontextmanager
 from multiprocessing import Pipe, Queue
 from typing import List, Union
 
-from fastapi.responses import StreamingResponse
 import numpy as np
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, WebSocketException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 
 from service.aruco_detector import LapseEngine
 from service.frame_collector import LastFrameCollector
@@ -18,8 +18,8 @@ from service.websocket_manager import WebsocketManager
 
 logger = LoggerService()
 connection_manager = WebsocketManager()
-frame_queue: Queue = Queue()
-visual_queue: Queue = Queue()
+frame_pipe = Pipe(False)
+visual_pipe = Pipe(False)
 
 
 device = os.getenv("DEVICE", "cpu")
@@ -31,25 +31,29 @@ if video_path == None:
 logger().warning("Initialization of application")
 
 
-collector = LastFrameCollector(video_path=video_path)
+frame_collector = LastFrameCollector(video_path=video_path)
 lapse_engine = LapseEngine()
 
 
 @asynccontextmanager
 async def deepengine(app: FastAPI):
     lapse_engine.run(
-        frame_queue=frame_queue,
+        frame_receiver=frame_pipe[0],
         connection_manager=connection_manager,
-        visual_queue=visual_queue,
+        visual_sender=visual_pipe[1],
     )
-    collector.start(queue=frame_queue)
+    frame_collector.run(frame_sender=frame_pipe[1])
     lapse_engine.thread.start()
-    collector.process.start()
+    frame_collector.process.start()
     yield
     lapse_engine.stop()
     lapse_engine.thread.join()
-    collector.stop()
-    collector.process.join()
+    frame_collector.stop()
+    frame_collector.process.join()
+    frame_pipe[0].close()
+    frame_pipe[1].close()
+    visual_pipe[0].close()
+    visual_pipe[1].close()
     LoggerService().logger.warning("Done stopping inference and collector")
 
 
@@ -87,26 +91,13 @@ async def websocket_endpoint(websocket: WebSocket):
         connection_manager.disconnect(websocket)
 
 
-# @app.websocket("/wsvideo")
-# async def websocket_video_endpoint(websocket: WebSocket):
-#     await video_connection_manager.connect(websocket)
-#     try:
-#         while True:
-#             await websocket.receive_text()
-#     except WebSocketDisconnect:
-#         video_connection_manager.disconnect(websocket)
-
-
 @app.get("/visualization")
 async def streaming_path():
     def iterfile():
         while True:
-            if visual_queue.empty():
+            if not visual_pipe[0].poll():
                 continue
-            data = visual_queue.get_nowait()
-            if not data:
-                continue
-
+            data = visual_pipe[0].recv()
             yield b"--frame\r\n" b"Content-Type: image/jpeg\r\n\r\n" + data + b"\r\n"
 
     return StreamingResponse(

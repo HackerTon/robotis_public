@@ -5,7 +5,7 @@ import time
 
 class TrackingEngine:
     MINIMUM_TRACKED = 1
-    MINIMUM_SECOND_BEFORE_TRACK = 0.34
+    MINIMUM_SECOND_BEFORE_TRACK = 0.1
     MAXIMUM_SECOND_BEFORE_EXPIRE = 2
 
     pending_objects: Dict[str, TrackingMovingObject] = {}

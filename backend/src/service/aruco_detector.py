@@ -1,20 +1,19 @@
 # from multiprocessing.connection import Connection
 import asyncio
 import base64
+import json
+from multiprocessing import Value
 from multiprocessing.connection import Connection
 from threading import Thread
-
-from multiprocessing import Queue, Value
+import time
 from typing import Dict
 
 import cv2
 import numpy as np
 
+from model.tracking_model import MovingObject
 from service.logger_service import LoggerService
 from service.tracking_engine import TrackingEngine
-from model.tracking_model import MovingObject
-import json
-
 from service.websocket_manager import WebsocketManager
 
 
@@ -30,24 +29,23 @@ class LapseEngine:
         self.qr_detector = cv2.aruco.ArucoDetector()
         self.tracking: dict[str, list[float]] = {}
         self.pending: dict[str, list[float]] = {}
-        self.running_flag = Value("b", True)
+        self.running = Value("b", True)
 
     def stop(self):
-        self.running_flag.value = False
+        self.running.value = False
 
     def run(
         self,
-        frame_queue: Queue,
-        visual_queue: Queue,
+        frame_receiver: Connection,
+        visual_sender: Connection,
         connection_manager: WebsocketManager,
     ):
         self.thread = Thread(
             target=self.infer,
             kwargs={
-                "frame_queue": frame_queue,
-                "running_flag": self.running_flag,
+                "frame_receiver": frame_receiver,
                 "connection_manager": connection_manager,
-                "visual_queue": visual_queue,
+                "visual_sender": visual_sender,
             },
             daemon=True,
             name="inference",
@@ -61,15 +59,15 @@ class LapseEngine:
 
     def infer(
         self,
-        frame_queue: Queue,
-        visual_queue: Queue,
-        running_flag,
+        frame_receiver: Connection,
+        visual_sender: Connection,
         connection_manager: WebsocketManager,
     ):
-        while running_flag.value:
-            if frame_queue.empty():
+        while self.running.value:
+            if not frame_receiver.poll():
                 continue
-            image: np.ndarray = frame_queue.get_nowait()
+
+            image: np.ndarray = frame_receiver.recv()
             height, width, channel = image.shape
 
             corners, ids, _ = self.qr_detector.detectMarkers(image)
@@ -94,7 +92,7 @@ class LapseEngine:
             frame = self.visualisation(image)
             _, img_bytes = cv2.imencode(".jpg", frame)
             data_bytes = np.array(img_bytes).tobytes()
-            visual_queue.put_nowait(data_bytes)
+            visual_sender.send(data_bytes)
 
     def visualisation(self, frame):
         height, width, channel = frame.shape
@@ -166,11 +164,12 @@ class LapseEngine:
         json_data = json.dumps(lapse_per_vehicle)
         asyncio.run(connection_manager.broadcastText(json_data))
 
-    def pump_visualisation_into_websocket(
-        self,
-        connection_manager: WebsocketManager,
-        frame,
-    ):
-        _, img_bytes = cv2.imencode(".jpg", frame)
-        data_bytes = np.array(img_bytes).tobytes()
-        asyncio.run(connection_manager.broadcastBytes(base64.encodebytes(data_bytes)))
+    # def pump_visualisation_into_websocket(
+    #     self,
+    #     connection_manager: WebsocketManager,
+    #     frame,
+    # ):
+    #     _, img_bytes = cv2.imencode(".jpg", frame)
+    #     data_bytes = np.array(img_bytes).tobytes()
+    #     asyncio.run_coroutine_threadsafe()
+    #     asyncio.run(connection_manager.broadcastBytes(base64.encodebytes(data_bytes)))

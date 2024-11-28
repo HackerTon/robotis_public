@@ -1,5 +1,6 @@
-from multiprocessing import Queue, Value
-from threading import Thread
+from multiprocessing import Value, Process
+from platform import system
+from multiprocessing.connection import Connection
 import cv2
 
 
@@ -8,10 +9,10 @@ class LastFrameCollector:
         self.video_path = video_path
         self.running = Value("b", True)
 
-    def start(self, queue: Queue):
-        self.process: Thread = Thread(
+    def run(self, frame_sender: Connection):
+        self.process: Process = Process(
             target=self._start_collection,
-            args=[queue, self.running],
+            args=[frame_sender],
             daemon=True,
             name="framecollector",
         )
@@ -19,17 +20,25 @@ class LastFrameCollector:
     def stop(self):
         self.running.value = False
 
-    def _start_collection(self, queue: Queue, running_flag):
-        cam = cv2.VideoCapture(self.video_path, cv2.CAP_DSHOW)
-        cam.set(cv2.CAP_PROP_AUTO_EXPOSURE, 3)
-        cam.set(cv2.CAP_PROP_EXPOSURE, -3.0)
+    def _start_collection(
+        self,
+        frame_sender: Connection,
+    ):
+        system_type = system()
 
-        cam.release()
-        cam = cv2.VideoCapture(self.video_path, cv2.CAP_DSHOW)
-        while running_flag.value:
-            frame_running, frame = cam.read()
-            if not frame_running:
+        if system_type == 'Windows':
+            camera = cv2.VideoCapture(self.video_path, cv2.CAP_DSHOW)
+            camera.set(cv2.CAP_PROP_AUTO_EXPOSURE, 3)
+            camera.set(cv2.CAP_PROP_EXPOSURE, -3.0)
+            camera.release()
+            camera = cv2.VideoCapture(self.video_path, cv2.CAP_DSHOW)
+        else:
+            camera = cv2.VideoCapture(self.video_path)
+
+        while self.running.value:
+            is_running, frame = camera.read()
+            if not is_running:
                 self.stop()
                 break
-            queue.put_nowait(frame)
-        cam.release()
+            frame_sender.send(frame)
+        camera.release()
