@@ -1,25 +1,23 @@
 <script setup>
 import CustomList from '@/components/CustomList.vue'
 import { db } from '@/main'
-import { collection, doc, orderBy, query, setDoc, runTransaction } from 'firebase/firestore'
+import { collection, doc, orderBy, query, runTransaction } from 'firebase/firestore'
 import { computed, ref } from 'vue'
 import { useCollection, useFirebaseAuth } from 'vuefire'
 
 import { useWatchableRef } from '@/composable/helper'
 import { useWebsocket } from '@/composable/websocket'
-import { scoreMap, groupMap, GAMETYPE, SORTINGTYPE } from '@/constant'
+import { GAME_STATUS, SCORE_MAP, NAME_LIST, PROGRESS } from '@/constant'
 import router from '@/router/index'
 
 const auth = useFirebaseAuth()
-const group = ref(0)
-const gameType = ref(GAMETYPE.PRELIMINARY)
-const sortByType = ref(SORTINGTYPE.TIME)
+const gameStatusRef = ref(GAME_STATUS.PRELIMINARY)
 
 // Live scoreboard
 const scoreBoardCollection = useCollection(
   query(collection(db, 'scores'), orderBy('score', 'desc')),
-  { ssrKey: 'something' },
 )
+
 const { lastUpdateText: scoreboardLastUpdate } = useWatchableRef(scoreBoardCollection)
 
 // Websocket
@@ -33,24 +31,29 @@ const sortedWebsocketScores = computed(() => {
     const scoreLength = scoresObject[key].length
     if (scoreLength == 0) continue
     // Only retain the latest score
-    scoresList.push({ id: key, name: key, score: scoresObject[key][scoreLength - 1] })
+    scoresList.push({ id: key, name: NAME_LIST[key], millis: scoresObject[key][scoreLength - 1] })
   }
   return scoresList.sort((x, y) => {
     return x.score - y.score
   })
 })
 
+const pendingGameRef = ref([])
+
 // Filtered group participants
-const groupName = computed(() => groupMap[group.value])
 const filteredScoreBoard = computed(() => {
   const filteredBasedOnGroup = [[], [], []]
   const thisScoreBoard = scoreBoardCollection.value
 
-  if (sortByType.value == SORTINGTYPE.TIME) {
+  if (gameStatusRef.value == GAME_STATUS.PRELIMINARY) {
     thisScoreBoard.sort((a, b) => {
       return a['lastTime'] - b['lastTime']
     })
-  } else if (sortByType.value == SORTINGTYPE.SCORE) {
+  } else if (gameStatusRef.value == GAME_STATUS.LAPSE) {
+    thisScoreBoard.sort((a, b) => {
+      return b['score'] - a['score']
+    })
+  } else if (gameStatusRef.value == GAME_STATUS.FURTHERLAPSE) {
     thisScoreBoard.sort((a, b) => {
       return b['score'] - a['score']
     })
@@ -80,38 +83,47 @@ async function onClearLapse() {
   }
 }
 async function onUpdateScores() {
-  const currentArray = sortedWebsocketScores.value
+  const currentArray = pendingGameRef.value
 
   try {
     await runTransaction(db, async (transaction) => {
       for (const [index, item] of currentArray.entries()) {
-        const document = doc(db, 'scores', item['name'])
+        const document = doc(db, 'scores', item['id'])
         let existingItem = scoreBoardCollection.value.find(
           (thisitem) => thisitem['id'] == item['name'],
         )
 
-        if (gameType.value == GAMETYPE.LAPSE && existingItem == undefined) {
-          throw `Player ${item['name']} not in database`
-        } else if (gameType.value == GAMETYPE.PRELIMINARY && existingItem != undefined) {
-          throw `Player ${item['name']} is in database`
-        }
-
         let existingScore = existingItem == undefined ? 0 : existingItem['score']
-        existingScore += scoreMap[index + 1]
-        if (gameType.value == GAMETYPE.PRELIMINARY) {
+        existingScore += SCORE_MAP[index + 1]
+        if (gameStatusRef.value == GAME_STATUS.PRELIMINARY) {
           existingScore = index == 0 ? 1 : 0
         }
+
         transaction.set(document, {
-          id: parseInt(item['name']),
-          name: item['name'],
+          id: parseInt(item['id']),
+          name: NAME_LIST[parseInt(item['id'])],
           score: existingScore,
-          lastTime: item['score'],
+          millis: item['millis'],
         })
       }
     })
+    pendingGameRef.value = []
   } catch (error) {
     window.alert(error)
     console.error(error)
+  }
+}
+
+// End game, push update to scoreboard
+async function onEndGame() {
+  await onUpdateScores()
+}
+
+// Update backend results into pending game
+async function onUpdateGame() {
+  // Push update to pendingGameRef
+  for (const [index, item] of sortedWebsocketScores.value.entries()) {
+    pendingGameRef.value.push(item)
   }
 }
 </script>
@@ -123,71 +135,94 @@ async function onUpdateScores() {
     </p>
     <div class="flex-1 grid grid-cols-1 md:grid-cols-3 m-5 gap-5">
       <!-- COL 1 -->
-      <div class="flex-1 flex flex-col border-black border-2 rounded-lg">
+      <div class="flex flex-col border-black border-2 rounded-lg">
         <div class="text-center mx-5 mb-2 p-3 font-bold text-2xl">Ranking List</div>
-        <CustomList :data="scoreBoardCollection" :text="scoreboardLastUpdate" />
+        <CustomList
+          :data="scoreBoardCollection"
+          :text="scoreboardLastUpdate"
+          class="overflow-y-auto"
+          use-score="true"
+        />
       </div>
 
       <!-- COL 2 -->
-      <div class="flex-1 flex flex-col border-black border-2 rounded-lg">
-        <div class="text-center mx-5 mb-2 p-3 font-bold text-2xl">Group {{ groupName }} List</div>
-        <CustomList :data="filteredScoreBoard[group]" :text="scoreboardLastUpdate" />
-        <div class="grid grix-row-2 content-center">
-          <div class="grid grid-cols-2 gap-2.5 p-5">
-            <div class="col-span-2 flex flex-row">
-              <p class="pr-2 flex-1">Group</p>
-              <select v-model="group" class="w-full border-2 flex-1">
-                <option value="0">GROUP A</option>
-                <option value="1">GROUP B</option>
-                <option value="2">GROUP C</option>
-              </select>
+      <div
+        class="flex-none flex flex-col justify-between items-start border-black border-2 rounded-lg"
+      >
+        <div class="flex-none grid grid-cols-3 w-full items-start bg-slate-100 rounded-lg h-[60%]">
+          <div class="overflow-y-auto p-2">
+            <p>GROUP A</p>
+            <div v-for="({ id }, index) in filteredScoreBoard[0]" :key="id">
+              <div>{{ index + 1 }}, {{ NAME_LIST[id] }}</div>
             </div>
-            <div class="col-span-2 flex flex-row">
-              <p class="pr-2 flex-1">GameType</p>
-              <select v-model="gameType" class="w-full border-2 flex-1">
-                <option value="0">PRELIMINARY</option>
-                <option value="1">LAPSE</option>
-              </select>
+          </div>
+          <div class="overflow-y-auto p-2">
+            <p>GROUP B</p>
+            <div v-for="({ id }, index) in filteredScoreBoard[1]" :key="id">
+              <div>{{ index + 1 }}, {{ NAME_LIST[id] }}</div>
             </div>
-            <div class="col-span-2 flex flex-row">
-              <p class="pr-2 flex-1">SortType</p>
-              <select v-model="sortByType" class="w-full border-2 flex-1">
-                <option value="0">SCORE</option>
-                <option value="1">TIME</option>
-              </select>
+          </div>
+          <div class="overflow-y-auto p-2">
+            <p>GROUP C</p>
+            <div v-for="({ id }, index) in filteredScoreBoard[2]" :key="id">
+              <div>{{ index + 1 }}, {{ NAME_LIST[id] }}</div>
             </div>
+          </div>
+        </div>
+        <div class="flex-none grid grid-cols-2 gap-2.5 p-5 w-full">
+          <div class="col-span-2 flex flex-row">
+            <p class="pr-2 flex-1">GameType</p>
+            <select v-model="gameStatusRef" class="w-full border-2 flex-1">
+              <option value="0">PRELIMINARY</option>
+              <option value="1">LAPSE</option>
+              <option value="2">FURTHERLAPSE</option>
+            </select>
+          </div>
+          <div class="col-span-2">
             <p v-if="isSocketOpen">
               Websocket status: {{ isSocketOpen ? 'OPENED' : 'DISCONNECTED' }}
             </p>
             <p class="text-red-600" v-else>
               Websocket status: {{ isSocketOpen ? 'OPENED' : 'DISCONNECTED' }}
             </p>
-            <button
-              @click="onUpdateScores"
-              class="border-2 border-black py-3 px-4 shadow-md text-base rounded-md hover:bg-red-500 hover:ring-4 hover:cursor-auto"
-            >
-              UPDATE LAPSE
-            </button>
-            <button
-              @click="onClearLapse"
-              class="border-2 border-black py-3 px-4 shadow-md text-base rounded-md hover:bg-red-500 hover:ring-4 hover:cursor-auto"
-            >
-              CLEAR LAPSE
-            </button>
-            <button
-              @click="onSignout"
-              class="border-2 border-black py-3 px-4 shadow-md text-base rounded-md hover:bg-red-500 hover:ring-4 hover:cursor-auto"
-            >
-              SIGNOUT
-            </button>
           </div>
+          <button
+            @click="onEndGame"
+            class="border-2 border-black py-3 px-4 shadow-md text-base rounded-md hover:bg-red-500 hover:ring-4 hover:cursor-auto"
+          >
+            END GAME
+          </button>
+          <button
+            @click="onUpdateGame"
+            class="border-2 border-black py-3 px-4 shadow-md text-base rounded-md hover:bg-red-500 hover:ring-4 hover:cursor-auto"
+          >
+            UPDATE GAME
+          </button>
+          <button
+            @click="onClearLapse"
+            class="border-2 border-black py-3 px-4 shadow-md text-base rounded-md hover:bg-red-500 hover:ring-4 hover:cursor-auto"
+          >
+            CLEAR LAPSE
+          </button>
+          <button
+            @click="onSignout"
+            class="border-2 border-black py-3 px-4 shadow-md text-base rounded-md hover:bg-red-500 hover:ring-4 hover:cursor-auto"
+          >
+            SIGNOUT
+          </button>
         </div>
       </div>
 
       <!-- COL 3 -->
-      <div class="flex-1 flex flex-col border-black border-2 rounded-lg">
-        <div class="flex-none text-center mx-5 mb-2 p-3 font-bold text-2xl">Backend Lapse</div>
-        <CustomList :data="sortedWebsocketScores" :text="websocketLastUpdate" class="flex-1" />
+      <div class="flex flex-col border-black border-2 rounded-lg">
+        <div class="flex-none overflow-y-auto h-[50%]">
+          <div class="text-center pt-2.5 font-bold text-2xl">Backend Results</div>
+          <CustomList :data="sortedWebsocketScores" :text="websocketLastUpdate" class="h-[50%]" />
+        </div>
+        <div class="flex-none overflow-y-auto h-[50%]">
+          <div class="text-center pt-2.5 font-bold text-2xl">Pending Game</div>
+          <CustomList :data="pendingGameRef" :text="websocketLastUpdate" />
+        </div>
       </div>
     </div>
   </div>
