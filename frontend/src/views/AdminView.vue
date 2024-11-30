@@ -5,12 +5,13 @@ import { collection, doc, orderBy, query, runTransaction } from 'firebase/firest
 import { computed, ref } from 'vue'
 import { useCollection, useFirebaseAuth } from 'vuefire'
 
-import { useWatchableRef } from '@/composable/helper'
+import { deepToRaw, useWatchableRef } from '@/composable/helper'
 import { useWebsocket } from '@/composable/websocket'
-import { GAME_STATUS, SCORE_MAP, NAME_LIST, PROGRESS } from '@/constant'
+import { GAME_STATUS, GROUP_NAME, NAME_LIST, SCORE_MAP } from '@/constant'
 import router from '@/router/index'
 
 const auth = useFirebaseAuth()
+const pendingGameRef = ref([])
 const gameStatusRef = ref(GAME_STATUS.PRELIMINARY)
 
 // Live scoreboard
@@ -38,16 +39,14 @@ const sortedWebsocketScores = computed(() => {
   })
 })
 
-const pendingGameRef = ref([])
-
 // Filtered group participants
 const filteredScoreBoard = computed(() => {
-  const filteredBasedOnGroup = [[], [], []]
-  const thisScoreBoard = scoreBoardCollection.value
+  const filteredBasedOnGroup = [[], [], [], [], [], []]
+  const thisScoreBoard = deepToRaw(scoreBoardCollection.value)
 
   if (gameStatusRef.value == GAME_STATUS.PRELIMINARY) {
     thisScoreBoard.sort((a, b) => {
-      return a['lastTime'] - b['lastTime']
+      return a['millis'] - b['millis']
     })
   } else if (gameStatusRef.value == GAME_STATUS.LAPSE) {
     thisScoreBoard.sort((a, b) => {
@@ -60,7 +59,7 @@ const filteredScoreBoard = computed(() => {
   }
 
   for (let i = 0; i != thisScoreBoard.length; ++i) {
-    const groupType = i % 3
+    const groupType = i % 6
     filteredBasedOnGroup[groupType].push(thisScoreBoard[i])
   }
   return filteredBasedOnGroup
@@ -149,22 +148,12 @@ async function onUpdateGame() {
       <div
         class="flex-none flex flex-col justify-between items-start border-black border-2 rounded-lg"
       >
-        <div class="flex-none grid grid-cols-3 w-full items-start bg-slate-100 rounded-lg h-[60%]">
-          <div class="overflow-y-auto p-2">
-            <p>GROUP A</p>
-            <div v-for="({ id }, index) in filteredScoreBoard[0]" :key="id">
-              <div>{{ index + 1 }}, {{ NAME_LIST[id] }}</div>
-            </div>
-          </div>
-          <div class="overflow-y-auto p-2">
-            <p>GROUP B</p>
-            <div v-for="({ id }, index) in filteredScoreBoard[1]" :key="id">
-              <div>{{ index + 1 }}, {{ NAME_LIST[id] }}</div>
-            </div>
-          </div>
-          <div class="overflow-y-auto p-2">
-            <p>GROUP C</p>
-            <div v-for="({ id }, index) in filteredScoreBoard[2]" :key="id">
+        <div
+          class="flex-none flex flex-row w-full items-start bg-slate-100 rounded-lg h-[60%] overflow-x-scroll"
+        >
+          <div v-for="(groupName, index) in GROUP_NAME" :key="groupName" class="w-[50vw]">
+            <p>Group {{ groupName }}</p>
+            <div v-for="({ id }, index) in filteredScoreBoard[index]" :key="id">
               <div>{{ index + 1 }}, {{ NAME_LIST[id] }}</div>
             </div>
           </div>
