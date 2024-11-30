@@ -2,10 +2,10 @@
 import CustomList from '@/components/CustomList.vue'
 import { db } from '@/main'
 import { collection, doc, orderBy, query, runTransaction } from 'firebase/firestore'
-import { computed, ref } from 'vue'
+import { computed, ref, toRaw } from 'vue'
 import { useCollection, useFirebaseAuth } from 'vuefire'
 
-import { deepToRaw, useWatchableRef } from '@/composable/helper'
+import { useWatchableRef } from '@/composable/helper'
 import { useWebsocket } from '@/composable/websocket'
 import { GAME_STATUS, GROUP_NAME, NAME_LIST, SCORE_MAP } from '@/constant'
 import router from '@/router/index'
@@ -42,7 +42,7 @@ const sortedWebsocketScores = computed(() => {
 // Filtered group participants
 const filteredScoreBoard = computed(() => {
   const filteredBasedOnGroup = [[], [], [], [], [], []]
-  const thisScoreBoard = deepToRaw(scoreBoardCollection.value)
+  const thisScoreBoard = toRaw(scoreBoardCollection.value)
 
   if (gameStatusRef.value == GAME_STATUS.PRELIMINARY) {
     thisScoreBoard.sort((a, b) => {
