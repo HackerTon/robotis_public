@@ -2,7 +2,7 @@
 import CustomList from '@/components/CustomList.vue'
 import { db } from '@/main'
 import { collection, doc, orderBy, query, runTransaction } from 'firebase/firestore'
-import { computed, ref, toRaw } from 'vue'
+import { computed, ref, toRaw, watch } from 'vue'
 import { useCollection, useFirebaseAuth } from 'vuefire'
 
 import { useWatchableRef } from '@/composable/helper'
@@ -39,10 +39,20 @@ const sortedWebsocketScores = computed(() => {
   })
 })
 
-// Filtered group participants
-const filteredScoreBoard = computed(() => {
-  const filteredBasedOnGroup = [[], [], [], [], [], []]
-  const thisScoreBoard = toRaw(scoreBoardCollection.value)
+const filteredScoreBoard = ref([[], [], [], [], [], []])
+
+// Button callback
+async function onGenParticipant() {
+  const thisScoreBoard = []
+
+  for (const item of scoreBoardCollection.value) {
+    thisScoreBoard.push({
+      id: item['id'],
+      millis: item['millis'],
+      name: item['name'],
+      score: item['score'],
+    })
+  }
 
   if (gameStatusRef.value == GAME_STATUS.PRELIMINARY) {
     thisScoreBoard.sort((a, b) => {
@@ -60,12 +70,11 @@ const filteredScoreBoard = computed(() => {
 
   for (let i = 0; i != thisScoreBoard.length; ++i) {
     const groupType = i % 6
-    filteredBasedOnGroup[groupType].push(thisScoreBoard[i])
+    filteredScoreBoard.value[groupType] = []
+    filteredScoreBoard.value[groupType].push(thisScoreBoard[i])
   }
-  return filteredBasedOnGroup
-})
+}
 
-// Button callback
 async function onSignout() {
   auth.signOut().then(() => router.push('/'))
 }
@@ -175,6 +184,12 @@ async function onUpdateGame() {
               Websocket status: {{ isSocketOpen ? 'OPENED' : 'DISCONNECTED' }}
             </p>
           </div>
+          <button
+            @click="onGenParticipant"
+            class="border-2 border-black py-3 px-4 shadow-md text-base rounded-md hover:bg-red-500 hover:ring-4 hover:cursor-auto"
+          >
+            GEN PARTICIPANTS
+          </button>
           <button
             @click="onEndGame"
             class="border-2 border-black py-3 px-4 shadow-md text-base rounded-md hover:bg-red-500 hover:ring-4 hover:cursor-auto"
