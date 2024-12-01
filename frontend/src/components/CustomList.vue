@@ -21,7 +21,7 @@ defineProps(['data', 'text', 'useScore'])
         <div class="flex-initial">Ranking: {{ index + 1 }}</div>
         <div class="flex-1">Player Name: {{ name }}</div>
         <div v-if="useScore" class="flex-1">Score: {{ score }}</div>
-        <div v-else class="flex-1">Time: {{ Math.round(millis) }}s</div>
+        <div v-else class="flex-1">Time: {{ Math.round(millis * 100) / 100 }}s</div>
       </div>
     </div>
   </div>
